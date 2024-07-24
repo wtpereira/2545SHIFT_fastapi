@@ -1,68 +1,51 @@
-import random
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from database import get_db, crud, schemas
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from http import HTTPStatus
 
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=['http://localhost:5173'],
+    allow_credentials=True,
+    allow_methods=['*'],
+    allow_headers=['*']
+)
 
 
-class User(BaseModel):
-    email: str
-    name: str = ''
+@app.get('/users/{user_id}', response_model=schemas.User)
+def read_user(user_id: int, db: Session = Depends(get_db)):
+    db_user = crud.get_user(db, user_id)
+    if db_user is None:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Usuário não encontrado.')
+
+    return db_user
 
 
-@app.get('/')
-def hello_world(name: str):
-    return {'Hello': name}
+@app.post('/users', response_model=schemas.User)
+def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
+    db_user = crud.get_user_by_email(db, email=user.email)
+    if db_user:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='E-mail já registrado.')
+
+    user_from_db = crud.create_user(db=db, user=user)
+    return user_from_db
 
 
-@app.post('/users', status_code=201)
-def create_user(user: User):
-    if '@' not in user.email:
-        raise HTTPException(400, 'Informe um e-mail válido.')
-
-    return {
-        "id": random.randint(0, 100),
-        "name": user.name,
-        "email": user.email
-    }
+@app.get('/users/', response_model=list[schemas.User])
+def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    users = crud.get_users(db, skip, limit)
+    return users
 
 
-
-@app.patch('/users/{user_id}')
-def partial_update_user(user_id: int, user: User):
-    if '@' not in user.email:
-        raise HTTPException(400, 'Informe um e-mail válido (PATCH).')
-
-    return {
-        "id": user_id,
-        "name": user.name,
-        "email": user.email
-    }
+@app.post('/users/{user_id}/items', response_model=schemas.Item)
+def create_item_for_user(user_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)):
+    return crud.create_user_item(db, item, user_id)
 
 
-@app.put('/users/{user_id}/{item_id}')
-def update_user(user_id:int, item_id:int, user: User):
-    if '@' not in user.email:
-        raise HTTPException(400, 'Informe um e-mail válido (PUT).')
-
-    return {
-        "id": user_id,
-        "name": user.name,
-        "email": user.email
-    }
-
-
-users = {
-    1: {'name': 'Well', 'email': 'well@fiap.com.br'},
-    2: {'name': 'Teste', 'email': 'teste@teste.com.br'}
-}
-
-
-@app.delete('/users/{user_id}')
-def delete_user(user_id: int):
-    try:
-        del users[user_id]
-        return users
-    except KeyError:
-        raise HTTPException(400, 'Usuário não exite!')
+@app.get('/items/', response_model=list[schemas.Item])
+def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    items = crud.get_items(db, skip, limit)
+    return items
